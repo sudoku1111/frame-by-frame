@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>私人放映室 Frame by frame</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <style>
+        :root {
+            --bg-dark: #0a0b10; --bg-card: #141620; --sidebar-bg: #0d0f16;
+            --primary: #a370ff; --secondary: #00d4ff; --accent: #ff4dff;
+            --text-main: #f0f0f5; --text-dim: #8e94a5;
+            --glow-primary: 0 0 15px rgba(163, 112, 255, 0.4);
+            --glow-text: 0 0 8px rgba(163, 112, 255, 0.8);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: var(--bg-dark); color: var(--text-main); min-height: 100vh; overflow-x: hidden; display: flex; }
+
+        /* 側邊欄 */
+        .sidebar { width: 260px; background: var(--sidebar-bg); padding: 30px 20px; border-right: 1px solid #1f2235; position: fixed; height: 100vh; z-index: 100; display: flex; flex-direction: column; }
+        .neon-title { font-size: 24px; font-weight: 800; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: var(--glow-text); margin-bottom: 5px; }
+        .nav-item { padding: 12px 15px; margin-bottom: 8px; border-radius: 8px; cursor: pointer; transition: 0.3s; color: var(--text-dim); font-size: 14px; }
+        .nav-item:hover, .nav-item.active { background: rgba(163, 112, 255, 0.1); color: var(--primary); text-shadow: var(--glow-text); }
+
+        /* 主內容 */
+        .main-content { margin-left: 260px; flex: 1; display: flex; justify-content: center; padding: 40px; }
+        .content-wrapper { width: 100%; max-width: 850px; }
+        .section { display: none; }
+        .section.active { display: block; animation: dreamIn 0.6s ease-out; }
+        @keyframes dreamIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .card { background: var(--bg-card); padding: 30px; border-radius: 20px; border: 1px solid #23273a; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { font-size: 22px; margin-bottom: 25px; color: #fff; border-left: 4px solid var(--primary); padding-left: 15px; }
+        label.field-label { display: block; font-size: 13px; font-weight: bold; color: var(--primary); margin-top: 20px; margin-bottom: 5px; }
+        input, select, textarea { width: 100%; padding: 14px; margin: 5px 0 15px; background: #1a1d2b; border: 1px solid #2d324a; border-radius: 10px; color: #fff; font-size: 14px; }
+        
+        .genre-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 25px; padding: 15px; background: rgba(255,255,255,0.02); border-radius: 10px; }
+        .genre-item { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; cursor: pointer; }
+        .genre-item input { width: auto; margin-right: 8px; accent-color: var(--primary); }
+
+        /* 歷史紀錄卡片 */
+        .history-card { background: linear-gradient(145deg, #1c1f2e 0%, #141620 100%); padding: 25px; border-radius: 18px; border: 1px solid #2d324a; margin-bottom: 20px; position: relative; }
+        .tag { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; margin-right: 8px; margin-bottom: 8px; font-weight: 600; color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(4px); transition: 0.3s; }
+        .stars-display { color: var(--accent); text-shadow: 0 0 8px var(--accent); margin-bottom: 8px; }
+
+        button { padding: 14px; background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        button:hover { box-shadow: 0 0 20px rgba(163, 112, 255, 0.6); transform: translateY(-2px); }
+        .btn-sm { padding: 6px 12px; font-size: 11px; background: rgba(255,255,255,0.05); color: #ccc; border-radius: 5px; margin-left: 5px; cursor: pointer; border: none; }
+        .hidden { display: none !important; }
+        #login-page { position: fixed; width: 100%; height: 100vh; background: var(--bg-dark); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+        .note-link { color: var(--secondary); text-decoration: underline; }
+        #calendar { background: transparent; border: none; font-size: 13px; margin-top: 20px; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <div id="login-page">
+        <div class="card" style="width: 380px; text-align:center;">
+            <div class="neon-title" style="font-size:32px;">私人放映室</div>
+            <p style="color:var(--text-dim); font-size:12px; margin-bottom:30px;">FRAME BY FRAME</p>
+            <input type="email" id="email-input" placeholder="帳號 (Email)">
+            <input type="password" id="password-input" placeholder="密碼 (Password)">
+            <button onclick="handlePasswordLogin()" style="width: 100%;">進入空間 (Enter Space)</button>
+        </div>
+    </div>
+
+    <div id="app-container" class="hidden" style="display:flex; width:100%;">
+        <div class="sidebar">
+            <div class="neon-title">私人放映室</div>
+            <p style="font-size:10px; color:var(--text-dim); margin-bottom:40px; letter-spacing:2px;">FRAME BY FRAME</p>
+            <div class="nav-item active" onclick="showSection('home', this)">首頁 (Home)</div>
+            <div class="nav-item" onclick="showSection('add-note', this)">新增觀影筆記 (Add Note)</div>
+            <div class="nav-item" onclick="showSection('history', this)">歷史觀影紀錄 (History)</div>
+            <div class="nav-item" onclick="showSection('watchlist', this)">已收藏待看 (Watchlist)</div>
+            <div style="margin-top:auto;">
+                <p id="user-email" style="font-size:11px; color:var(--text-dim); margin-bottom:10px;"></p>
+                <button onclick="handleLogout()" style="background:transparent; border:1px solid #ff4757; color:#ff4757; padding: 8px; width:100%; font-size:12px;">中斷連線 (Disconnect)</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="content-wrapper">
+                <div id="home" class="section active">
+                    <h2>🎞️ 歡迎回來 (Welcome Back)</h2>
+                    <div class="card"><p style="line-height: 2;">在這裡記錄每一格光影細節。請從左側選單開始操作。</p></div>
+                </div>
+
+                <div id="add-note" class="section">
+                    <h2>🆕 新增觀影筆記 (New Movie Note)</h2>
+                    <div class="card">
+                        <input type="hidden" id="edit-id">
+                        <label class="field-label">片名資訊 (Title Info)</label>
+                        <input type="text" id="m_name" placeholder="中文片名 (Chinese Title)">
+                        <input type="text" id="m_name_en" placeholder="英文片名 (English Title)">
+                        <div style="display:flex; gap:15px;">
+                            <input type="text" id="m_director" placeholder="導演名稱 (Director)">
+                            <input type="text" id="m_length" placeholder="觀看集數或片長 (Runtime)">
+                        </div>
+                        
+                        <label class="field-label">評分 (Rating) - 若無評分及觀看日期將列入待看清單</label>
+                        <select id="m_rating">
+                            <option value="0">尚未評分 (Not Rated)</option>
+                            <option value="5">⭐⭐⭐⭐⭐</option><option value="4">⭐⭐⭐⭐</option>
+                            <option value="3">⭐⭐⭐</option><option value="2">⭐⭐</option><option value="1">⭐</option>
+                        </select>
+
+                        <label class="field-label">觀看日期 (Watch Date - 單日或區間)</label>
+                        <input type="text" id="m_date_picker" placeholder="點擊選取日期或範圍 (Select Date or Range)">
+
+                        <label class="field-label">類型 (Genres)</label>
+                        <div class="genre-grid" id="genre-container">
+                            <label class="genre-item"><input type="checkbox" value="劇情">劇情 (Drama)</label>
+                            <label class="genre-item"><input type="checkbox" value="喜劇">喜劇 (Comedy)</label>
+                            <label class="genre-item"><input type="checkbox" value="愛情">愛情 (Romance)</label>
+                            <label class="genre-item"><input type="checkbox" value="動作">動作 (Action)</label>
+                            <label class="genre-item"><input type="checkbox" value="驚悚">驚悚 (Thriller)</label>
+                            <label class="genre-item"><input type="checkbox" value="恐怖">恐怖 (Horror)</label>
+                            <label class="genre-item"><input type="checkbox" value="科幻">科幻 (Sci-Fi)</label>
+                            <label class="genre-item"><input type="checkbox" value="奇幻">奇幻 (Fantasy)</label>
+                            <label class="genre-item"><input type="checkbox" value="懸疑">懸疑 (Mystery)</label>
+                            <label class="genre-item"><input type="checkbox" value="犯罪">犯罪 (Crime)</label>
+                            <label class="genre-item"><input type="checkbox" value="動畫">動畫 (Animation)</label>
+                            <label class="genre-item"><input type="checkbox" value="紀錄片">紀錄片 (Doc)</label>
+                            <label class="genre-item"><input type="checkbox" value="青春">青春 (Coming-of-Age)</label>
+                            <label class="genre-item"><input type="checkbox" value="成長">成長 (Growth)</label>
+                            <label class="genre-item"><input type="checkbox" value="公路">公路 (Road Movie)</label>
+                            <label class="genre-item"><input type="checkbox" value="日常">日常 (Slice of Life)</label>
+                            <label class="genre-item"><input type="checkbox" value="黑色幽默">黑色幽默 (Dark Com)</label>
+                            <label class="genre-item"><input type="checkbox" value="心理">心理 (Psychological)</label>
+                            <label class="genre-item"><input type="checkbox" value="後末日">後末日 (Post-Apoc)</label>
+                            <label class="genre-item"><input type="checkbox" value="群像劇">群像劇 (Ensemble)</label>
+                            <label class="genre-item"><input type="checkbox" value="反烏托邦">反烏托邦 (Dystopian)</label>
+                            <label class="genre-item"><input type="checkbox" value="生存">生存 (Survival)</label>
+                            <label class="genre-item"><input type="checkbox" value="戰爭">戰爭 (War)</label>
+                            <label class="genre-item"><input type="checkbox" value="歷史">歷史 (Historical)</label>
+                            <label class="genre-item"><input type="checkbox" value="音樂">音樂 (Music)</label>
+                            <label class="genre-item"><input type="checkbox" value="運動">運動 (Sports)</label>
+                            <label class="genre-item"><input type="checkbox" value="家庭">家庭 (Family)</label>
+                            <label class="genre-item"><input type="checkbox" value="冒險">冒險 (Adventure)</label>
+                            <label class="genre-item"><input type="checkbox" value="超自然">超自然 (Supernatural)</label>
+                            <label class="genre-item"><input type="checkbox" value="時間旅行">時間旅行 (Time Travel)</label>
+                        </div>
+
+                        <label class="field-label">國家與觀影方式 (Watch Info)</label>
+                        <select id="m_country">
+                            <option value="">選擇國家 (Select Country)</option>
+                            <option value="美國">美國 (United States)</option><option value="台灣">台灣 (Taiwan)</option>
+                            <option value="香港">香港 (Hong Kong)</option><option value="中國">中國 (China)</option>
+                            <option value="日本">日本 (Japan)</option><option value="韓國">韓國 (South Korea)</option>
+                            <option value="泰國">泰國 (Thailand)</option><option value="英國">英國 (United Kingdom)</option>
+                            <option value="新加坡">新加坡 (Singapore)</option><option value="法國">法國 (France)</option>
+                        </select>
+                        <select id="m_platform_type" onchange="updatePlatformOptions()">
+                            <option value="">觀影方式 (Watch via)</option>
+                            <option value="串流平台">串流平台 (Streaming)</option><option value="院線">院線 (Theater)</option>
+                        </select>
+                        <select id="m_platform_name" class="hidden"></select>
+
+                        <label class="field-label">備註與筆記 (Notes - URLs allowed)</label>
+                        <textarea id="m_title" placeholder="在這裡寫下觀影心情，可貼入連結... (Write thoughts or links...)" rows="4"></textarea>
+                        
+                        <input type="number" id="m_price" placeholder="費用 (Price / Cost)">
+                        <button id="save-btn" onclick="addEntry()" style="width:100%; margin-top:20px;">同步至雲端資料庫 (Sync to Database)</button>
+                    </div>
+                </div>
+
+                <div id="history" class="section">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h2>📜 歷史觀影紀錄 (History)</h2>
+                        <div><button class="btn-sm" onclick="toggleView('list')">清單模式</button><button class="btn-sm" onclick="toggleView('cal')">日曆模式</button></div>
+                    </div>
+                    <div id="list-view"><div id="list-container-history"></div></div>
+                    <div id="calendar-view" class="hidden"><div id="calendar"></div></div>
+                </div>
+
+                <div id="watchlist" class="section">
+                    <h2>⏳ 已收藏待看 (Watchlist)</h2>
+                    <div id="list-container-watchlist"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://dwcroxlwzssogdisnolg.supabase.co'; 
+        const SUPABASE_KEY = 'sb_publishable_nLkaXluq00ngjJAy4NjGWA_QKGriqlB'; 
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        let calendar, datePicker, selectedDates = [];
+
+        datePicker = flatpickr("#m_date_picker", { mode: "range", dateFormat: "Y-m-d", theme: "dark", onClose: (s) => { selectedDates = s; } });
+
+        const sciFiPalettes = [
+            { bg: 'rgba(163, 112, 255, 0.2)', glow: 'rgba(163, 112, 255, 0.5)' },
+            { bg: 'rgba(0, 212, 255, 0.2)', glow: 'rgba(0, 212, 255, 0.5)' },
+            { bg: 'rgba(255, 77, 255, 0.2)', glow: 'rgba(255, 77, 255, 0.5)' },
+            { bg: 'rgba(62, 207, 142, 0.2)', glow: 'rgba(62, 207, 142, 0.5)' }
+        ];
+
+        function getTagHtml(genres) {
+            let arr = [];
+            if (Array.isArray(genres)) arr = genres;
+            else if (typeof genres === 'string' && genres.trim() !== "") arr = genres.split(',').map(s => s.trim());
+            
+            if (!arr || arr.length === 0) return '';
+            return arr.map((g, i) => {
+                const p = sciFiPalettes[i % sciFiPalettes.length];
+                return `<span class="tag" style="background:${p.bg}; border-color:${p.glow}; box-shadow: 0 0 10px ${p.glow};">${g}</span>`;
+            }).join('');
+        }
+
+        function linkify(text) {
+            const urlPattern = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+            return (text || '').replace(urlPattern, '<a href="$1" target="_blank" class="note-link">$1</a>');
+        }
+
+        function showSection(id, el) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            if(el) el.classList.add('active');
+            if(id === 'history' || id === 'watchlist') fetchData();
+            if(id === 'add-note' && !document.getElementById('edit-id').value) clearForm();
+        }
+
+        function toggleView(type) {
+            document.getElementById('list-view').classList.toggle('hidden', type === 'cal');
+            document.getElementById('calendar-view').classList.toggle('hidden', type === 'list');
+            if(type === 'cal') setTimeout(() => calendar.render(), 100);
+        }
+
+        async function handlePasswordLogin() {
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) alert('連線失敗'); else checkUser();
+        }
+
+        async function checkUser() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) {
+                document.getElementById('login-page').classList.add('hidden');
+                document.getElementById('app-container').classList.remove('hidden');
+                document.getElementById('user-email').innerText = session.user.email;
+                initCalendar(); showSection('home');
+            }
+        }
+
+        function initCalendar() {
+            calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+                initialView: 'dayGridMonth', locale: 'zh-tw',
+                events: async (info, success) => {
+                    const { data } = await supabaseClient.from('movie_tracker').select('*').not('watch_date', 'is', null);
+                    success(data.filter(i => i.rating > 0).map(i => ({
+                        title: i.movie_name, start: i.watch_date,
+                        end: i.watch_date_end ? new Date(new Date(i.watch_date_end).getTime() + 86400000).toISOString().split('T')[0] : null,
+                        extendedProps: { id: i.id }
+                    })));
+                },
+                eventClick: (info) => editEntry(info.event.extendedProps.id)
+            });
+        }
+
+        async function addEntry() {
+            const id = document.getElementById('edit-id').value;
+            const ratingVal = parseInt(document.getElementById('m_rating').value);
+            
+            // 確保類型一定是陣列
+            const genres = Array.from(document.querySelectorAll('#genre-container input:checked')).map(el => el.value);
+
+            const entry = {
+                movie_name: document.getElementById('m_name').value,
+                movie_name_en: document.getElementById('m_name_en').value,
+                director: document.getElementById('m_director').value,
+                length: document.getElementById('m_length').value,
+                rating: ratingVal,
+                genre: genres, 
+                country: document.getElementById('m_country').value,
+                platform_name: document.getElementById('m_platform_name').value,
+                title: document.getElementById('m_title').value,
+                watch_date: selectedDates[0] ? selectedDates[0].toISOString().split('T')[0] : null,
+                watch_date_end: selectedDates[1] ? selectedDates[1].toISOString().split('T')[0] : null,
+                price: parseFloat(document.getElementById('m_price').value) || 0
+            };
+            
+            if(!entry.movie_name) return alert('請輸入片名');
+
+            let res;
+            if (id) res = await supabaseClient.from('movie_tracker').update(entry).eq('id', id);
+            else res = await supabaseClient.from('movie_tracker').insert([entry]);
+
+            if (!res.error) {
+                alert('已同步成功');
+                clearForm();
+                if(ratingVal > 0) showSection('history'); else showSection('watchlist');
+            }
+        }
+
+        async function fetchData() {
+            const { data } = await supabaseClient.from('movie_tracker').select('*').order('watch_date', { ascending: false });
+            if (data) {
+                const hist = data.filter(i => i.rating > 0);
+                const watch = data.filter(i => i.rating === 0);
+                const render = (i) => `
+                    <div class="history-card">
+                        <div style="position: absolute; top: 20px; right: 20px;">
+                            <span class="btn-sm" onclick="editEntry('${i.id}')">EDIT</span>
+                            <span class="btn-sm" style="color:#ff4757" onclick="deleteEntry('${i.id}')">DEL</span>
+                        </div>
+                        <div class="stars-display">${i.rating ? '★'.repeat(i.rating) : '尚未評分'}</div>
+                        <div style="font-size:20px; font-weight:bold;">${i.movie_name}</div>
+                        <div style="font-size:13px; color:var(--secondary); margin-bottom:12px; font-style:italic;">${i.movie_name_en || ''}</div>
+                        <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">導演：${i.director || '-'} | 片長：${i.length || '-'}</div>
+                        <div style="margin-bottom:12px;">${getTagHtml(i.genre)}</div>
+                        <div style="font-size:11px; color:#555; display:flex; justify-content:space-between; border-top:1px solid #23273a; padding-top:10px; margin-top:10px;">
+                            <span>${i.watch_date || '⏳'} ${i.watch_date_end ? '至 ' + i.watch_date_end : ''} | ${i.platform_name || ''} | ${i.country || ''}</span>
+                            <span style="color:var(--secondary);">$${i.price}</span>
+                        </div>
+                        <div style="font-size:13px; color:#aaa; margin-top:10px; white-space: pre-wrap;">${linkify(i.title)}</div>
+                    </div>`;
+                document.getElementById('list-container-history').innerHTML = hist.map(render).join('') || '暫無紀錄';
+                document.getElementById('list-container-watchlist').innerHTML = watch.map(render).join('') || '清單空空';
+            }
+        }
+
+        async function editEntry(id) {
+            const { data } = await supabaseClient.from('movie_tracker').select('*').eq('id', id).single();
+            if(data) {
+                showSection('add-note');
+                document.getElementById('edit-id').value = data.id;
+                document.getElementById('m_name').value = data.movie_name;
+                document.getElementById('m_name_en').value = data.movie_name_en || '';
+                document.getElementById('m_director').value = data.director || '';
+                document.getElementById('m_length').value = data.length || '';
+                document.getElementById('m_rating').value = data.rating;
+                document.getElementById('m_title').value = data.title || '';
+                document.getElementById('m_price').value = data.price || 0;
+                document.getElementById('m_country').value = data.country || '';
+                if(data.watch_date) {
+                    const range = data.watch_date_end ? [data.watch_date, data.watch_date_end] : [data.watch_date];
+                    datePicker.setDate(range);
+                    selectedDates = range.map(d => new Date(d));
+                }
+                // 修復：類型勾選還原，處理不同資料型態
+                const gData = Array.isArray(data.genre) ? data.genre : (data.genre ? data.genre.split(',') : []);
+                document.querySelectorAll('#genre-container input').forEach(cb => cb.checked = gData.includes(cb.value));
+            }
+        }
+
+        async function deleteEntry(id) { if(confirm('確定移除？')) { await supabaseClient.from('movie_tracker').delete().eq('id', id); fetchData(); } }
+        function handleLogout() { supabaseClient.auth.signOut(); location.reload(); }
+        function clearForm() {
+            document.getElementById('edit-id').value = '';
+            document.querySelectorAll('input, textarea, select').forEach(i => (i.id !== 'm_date_picker') && (i.value = ''));
+            document.querySelectorAll('input[type="checkbox"]').forEach(i => i.checked = false);
+            datePicker.clear();
+        }
+        function updatePlatformOptions() {
+            const t = document.getElementById('m_platform_type').value;
+            const n = document.getElementById('m_platform_name');
+            n.innerHTML = ''; if(!t) return n.classList.add('hidden');
+            n.classList.remove('hidden');
+            let opts = (t === '串流平台') ? ['Netflix', 'Disney+', 'HBO GO', 'Prime Video', 'Apple TV+'] : ['誠品電影', '松仁威秀', '京站威秀', '光點華山', '西門國賓'];
+            opts.forEach(o => { const el = document.createElement('option'); el.value=o; el.text=o; n.add(el); });
+        }
+        checkUser();
+    </script>
+</body>
+</html>
